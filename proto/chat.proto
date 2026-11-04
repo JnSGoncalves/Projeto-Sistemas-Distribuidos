@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option csharp_namespace = "Chat";
+
+message Solicitacao {
+  string acao = 1;
+  string usuario = 2;
+  string canal = 3;
+  int64 timestamp = 4;
+}
+
+message Resposta {
+  bool sucesso = 1;
+  string mensagem = 2;
+  repeated string canais = 3;
+  int64 timestamp = 4;
+}
