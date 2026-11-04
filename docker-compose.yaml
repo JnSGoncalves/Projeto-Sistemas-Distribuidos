@@ -1,0 +1,73 @@
+services:
+  broker:
+    build: ./broker
+    volumes:
+      - ./broker/broker.py:/app/main.py:ro
+    ports:
+      - "127.0.0.1:5555:5555"
+
+  server-python-1:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    volumes:
+      - python-1-data:/data
+    depends_on: [broker]
+
+  server-python-2:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    volumes:
+      - python-2-data:/data
+    depends_on: [broker]
+
+  server-csharp-1:
+    build:
+      context: .
+      dockerfile: csharp/Dockerfile
+    volumes:
+      - csharp-1-data:/data
+    depends_on: [broker]
+
+  server-csharp-2:
+    build:
+      context: .
+      dockerfile: csharp/Dockerfile
+    volumes:
+      - csharp-2-data:/data
+    depends_on: [broker]
+
+  client-python-1:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    command: [python, cliente.py, bot-python-1]
+    depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
+
+  client-python-2:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    command: [python, cliente.py, bot-python-2]
+    depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
+
+  client-csharp-1:
+    build:
+      context: .
+      dockerfile: csharp/Dockerfile
+    command: [cliente, bot-csharp-1]
+    depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
+
+  client-csharp-2:
+    build:
+      context: .
+      dockerfile: csharp/Dockerfile
+    command: [cliente, bot-csharp-2]
+    depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
+
+volumes:
+  python-1-data:
+  python-2-data:
+  csharp-1-data:
+  csharp-2-data:

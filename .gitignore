@@ -218,3 +218,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+*.md
+# !README.md
+**/bin/
+**/obj/
+python/chat_pb2.py
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

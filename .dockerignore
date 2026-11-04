@@ -1,0 +1,7 @@
+.git
+.venv
+**/bin
+**/obj
+**/__pycache__
+**/chat_pb2.py
+*.log
