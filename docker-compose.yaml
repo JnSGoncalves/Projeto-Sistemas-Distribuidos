@@ -7,6 +7,7 @@ services:
       - "127.0.0.1:5555:5555"
 
   server-python-1:
+    profiles: [python]
     build:
       context: .
       dockerfile: python/Dockerfile
@@ -15,6 +16,7 @@ services:
     depends_on: [broker]
 
   server-python-2:
+    profiles: [python]
     build:
       context: .
       dockerfile: python/Dockerfile
@@ -28,7 +30,7 @@ services:
       dockerfile: csharp/Dockerfile
     volumes:
       - csharp-1-data:/data
-    depends_on: [broker]
+    depends_on: [broker, proxy]
 
   server-csharp-2:
     build:
@@ -36,9 +38,10 @@ services:
       dockerfile: csharp/Dockerfile
     volumes:
       - csharp-2-data:/data
-    depends_on: [broker]
+    depends_on: [broker, proxy]
 
   client-python-1:
+    profiles: [python]
     build:
       context: .
       dockerfile: python/Dockerfile
@@ -46,6 +49,7 @@ services:
     depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
 
   client-python-2:
+    profiles: [python]
     build:
       context: .
       dockerfile: python/Dockerfile
@@ -57,14 +61,19 @@ services:
       context: .
       dockerfile: csharp/Dockerfile
     command: [cliente, bot-csharp-1]
-    depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
+    depends_on: [server-csharp-1, server-csharp-2]
 
   client-csharp-2:
     build:
       context: .
       dockerfile: csharp/Dockerfile
     command: [cliente, bot-csharp-2]
-    depends_on: [server-python-1, server-python-2, server-csharp-1, server-csharp-2]
+    depends_on: [server-csharp-1, server-csharp-2]
+
+  proxy:
+    build: ./proxy
+    volumes:
+      - ./proxy/proxy.py:/app/main.py:ro
 
 volumes:
   python-1-data:

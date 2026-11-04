@@ -4,34 +4,71 @@ using NetMQ.Sockets;
 
 namespace Chat;
 
-class Cliente
-{
-    public void Executar(string usuario)
-    {
+class Cliente {
+    public void Executar(string usuario) {
         using var socket = new RequestSocket();
         socket.Connect(Environment.GetEnvironmentVariable("BROKER_CLIENTES") ?? "tcp://broker:5555");
 
-        Resposta Enviar(string acao, string canal = "")
-        {
-            var solicitacao = new Solicitacao { Acao = acao, Usuario = usuario, Canal = canal,
+        using var assinante = new SubscriberSocket();
+        assinante.Connect(Environment.GetEnvironmentVariable("PROXY_INSCRICOES") ?? "tcp://proxy:5558");
+
+        var inscricoes = new HashSet<string>();
+
+        Resposta Enviar(string acao, string canal = "", string texto = "") {
+            var solicitacao = new Solicitacao { Acao = acao, Usuario = usuario, Canal = canal, Texto = texto,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
-            Console.WriteLine($"Enviada: acao={solicitacao.Acao} usuario=[{solicitacao.Usuario}] canal=[{solicitacao.Canal}] timestamp={solicitacao.Timestamp}");
+            Console.WriteLine($"Enviada: acao={solicitacao.Acao} usuario=[{solicitacao.Usuario}] canal=[{solicitacao.Canal}] texto=[{solicitacao.Texto}] timestamp={solicitacao.Timestamp}");
             socket.SendFrame(solicitacao.ToByteArray());
             var resposta = Resposta.Parser.ParseFrom(socket.ReceiveFrameBytes());
             Console.WriteLine($"Recebida: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp}");
             return resposta;
         }
 
-        while (!Enviar("login").Sucesso)
-            Thread.Sleep(1000);
+        void ReceberDurante(int milissegundos) {
+            var tempo = System.Diagnostics.Stopwatch.StartNew();
 
-        while (true)
-        {
+            while (tempo.ElapsedMilliseconds < milissegundos) {
+                if (!assinante.TryReceiveFrameString(TimeSpan.FromMilliseconds(100), out var topico))
+                    continue;
+                var publicacao = Publicacao.Parser.ParseFrom(assinante.ReceiveFrameBytes());
+                long recebidaEm = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                if (topico == publicacao.Canal + "\0" && inscricoes.Contains(publicacao.Canal))
+                    Console.WriteLine($"Publicacao recebida: canal=[{publicacao.Canal}] usuario=[{publicacao.Usuario}] texto=[{publicacao.Texto}] envio={publicacao.Timestamp} recebimento={recebidaEm}");
+            }
+        }
+
+        while (!Enviar("login").Sucesso)
+            ReceberDurante(1000);
+
+        while (true) {
             var resposta = Enviar("listar");
-            string canal = $"canal-{usuario}";
-            if (resposta.Sucesso && !resposta.Canais.Contains(canal))
-                Enviar("criar", canal);
-            Thread.Sleep(2000);
+
+            if (!resposta.Sucesso) { ReceberDurante(1000); continue; }
+
+            var canais = resposta.Canais.ToList();
+            if (canais.Count < 5) {
+                string novoCanal = $"canal-{Guid.NewGuid().ToString("N")[..8]}";
+                ReceberDurante(1000);
+                if (Enviar("criar", novoCanal).Sucesso) canais.Add(novoCanal);
+            }
+
+            if (canais.Count == 0) { ReceberDurante(1000); continue; }
+
+            var disponiveis = canais.Where(canal => !inscricoes.Contains(canal)).ToList();
+            if (inscricoes.Count < 3 && disponiveis.Count > 0) {
+                string inscricao = disponiveis[Random.Shared.Next(disponiveis.Count)];
+                assinante.Subscribe(inscricao + "\0");
+                inscricoes.Add(inscricao);
+                Console.WriteLine($"Inscrito no canal [{inscricao}]");
+            }
+
+            ReceberDurante(1000);
+            
+            string canal = canais[Random.Shared.Next(canais.Count)];
+            for (int i = 0; i < 10; i++) {
+                Enviar("publicar", canal, $"Mensagem {Random.Shared.Next(1000, 10000)}");
+                ReceberDurante(1000);
+            }
         }
     }
 }

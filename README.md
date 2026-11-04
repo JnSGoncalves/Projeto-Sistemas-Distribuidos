@@ -9,7 +9,7 @@ são serializadas com Protobuf e cada servidor mantém seu próprio banco SQLite
 | Parte | Objetivo | Situação |
 | --- | --- | --- |
 | 1 | Login de usuários, criação e listagem de canais, com persistência. | Implementada |
-| 2 | Inscrição e publicação de mensagens em canais com Pub/Sub. | Prevista |
+| 2 | Inscrição e publicação de mensagens em canais com Pub/Sub. | Implementada em C# e na infraestrutura; Python pendente |
 | 3 | Relógios lógicos, sincronização física e heartbeat dos servidores. | Prevista |
 | 4 | Eleição de coordenador e sincronização dos relógios com Berkeley. | Prevista |
 | 5 | Consistência e replicação dos dados entre todos os servidores. | Prevista |
@@ -20,11 +20,15 @@ são serializadas com Protobuf e cada servidor mantém seu próprio banco SQLite
 broker/
   broker.py          encaminhamento entre clientes e servidores
   Dockerfile         imagem do broker
+proxy/
+  proxy.py           encaminhamento das publicações e inscrições
+  Dockerfile         imagem do proxy Pub/Sub
 proto/
   chat.proto         contrato compartilhado das mensagens
 python/
   cliente.py         bot Python
   servidor.py        servidor Python e persistência SQLite
+  sql/               scripts de criação e consulta das tabelas Python
   requirements.txt   dependências Python
   Dockerfile         imagem dos processos Python
 csharp/
@@ -48,14 +52,33 @@ modo Linux. Na raiz do projeto, execute:
 docker compose up --build
 ```
 
-São iniciados nove containers: um broker, quatro bots e quatro servidores,
-sendo dois bots e dois servidores de cada linguagem. A comunicação ocorre na
-rede do Compose; o broker recebe os clientes na porta 5555 e conecta os
-servidores pela porta 5556.
+Por padrão, são iniciados seis containers: broker, proxy, dois bots C# e dois
+servidores C#. A comunicação ocorre na rede do Compose. O broker recebe os
+clientes na porta 5555 e conecta os servidores pela porta 5556. O proxy recebe
+publicações na porta 5557 (XSUB) e distribui aos assinantes na porta 5558 (XPUB).
 
-Os bots realizam login e, a cada dois segundos, consultam os canais e solicitam
-a criação de seu canal quando necessário. A execução não exige entrada pelo
-teclado. Clientes e servidores exibem as mensagens enviadas e recebidas.
+Os bots C# realizam login, criam um canal quando encontram menos de cinco e
+adicionam uma inscrição aleatória enquanto possuem menos de três inscrições.
+Em seguida, escolhem um canal e enviam um lote de dez mensagens aleatórias,
+com intervalo de um segundo entre mensagens. As inscrições e os canais são
+consultados novamente a cada lote. As publicações recebidas mostram canal,
+usuário, texto e timestamps de envio e recebimento.
+
+A execução não exige entrada pelo teclado. Clientes e servidores exibem as
+mensagens enviadas e recebidas. Cada servidor mantém seus canais e publicações
+no próprio banco; a replicação entre servidores está prevista na Parte 5.
+
+Os clientes e servidores Python permanecem com as funcionalidades da Parte 1
+e podem ser habilitados pelo perfil opcional:
+
+```sh
+docker compose --profile python up --build
+```
+
+Esse perfil acrescenta quatro containers. Enquanto os servidores Python não
+implementarem a Parte 2, pedidos de publicação encaminhados a eles retornarão
+erro de ação inválida. Para voltar à execução somente C#, encerre primeiro com
+`docker compose --profile python down` e depois inicie sem o perfil.
 
 Para executar em segundo plano:
 
