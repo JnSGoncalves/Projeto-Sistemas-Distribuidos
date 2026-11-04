@@ -7,11 +7,19 @@ message Solicitacao {
   string usuario = 2;
   string canal = 3;
   int64 timestamp = 4;
+  string texto = 5;
 }
 
 message Resposta {
   bool sucesso = 1;
   string mensagem = 2;
   repeated string canais = 3;
+  int64 timestamp = 4;
+}
+
+message Publicacao {
+  string canal = 1;
+  string usuario = 2;
+  string texto = 3;
   int64 timestamp = 4;
 }
