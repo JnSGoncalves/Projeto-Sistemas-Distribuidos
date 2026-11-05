@@ -13,14 +13,16 @@ class Cliente {
         assinante.Connect(Environment.GetEnvironmentVariable("PROXY_INSCRICOES") ?? "tcp://proxy:5558");
 
         var inscricoes = new HashSet<string>();
+        var relogio = new Relogio();
 
         Resposta Enviar(string acao, string canal = "", string texto = "") {
             var solicitacao = new Solicitacao { Acao = acao, Usuario = usuario, Canal = canal, Texto = texto,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
-            Console.WriteLine($"Enviada: acao={solicitacao.Acao} usuario=[{solicitacao.Usuario}] canal=[{solicitacao.Canal}] texto=[{solicitacao.Texto}] timestamp={solicitacao.Timestamp}");
+                Timestamp = relogio.Agora(), Contador = relogio.Enviar() };
+            Console.WriteLine($"Enviada: acao={solicitacao.Acao} usuario=[{solicitacao.Usuario}] canal=[{solicitacao.Canal}] texto=[{solicitacao.Texto}] timestamp={solicitacao.Timestamp} contador={solicitacao.Contador}");
             socket.SendFrame(solicitacao.ToByteArray());
             var resposta = Resposta.Parser.ParseFrom(socket.ReceiveFrameBytes());
-            Console.WriteLine($"Recebida: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp}");
+            relogio.Receber(resposta.Contador);
+            Console.WriteLine($"Recebida: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp} contador={resposta.Contador}");
             return resposta;
         }
 
@@ -31,9 +33,10 @@ class Cliente {
                 if (!assinante.TryReceiveFrameString(TimeSpan.FromMilliseconds(100), out var topico))
                     continue;
                 var publicacao = Publicacao.Parser.ParseFrom(assinante.ReceiveFrameBytes());
-                long recebidaEm = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                relogio.Receber(publicacao.Contador);
+                long recebidaEm = relogio.Agora();
                 if (topico == publicacao.Canal + "\0" && inscricoes.Contains(publicacao.Canal))
-                    Console.WriteLine($"Publicacao recebida: canal=[{publicacao.Canal}] usuario=[{publicacao.Usuario}] texto=[{publicacao.Texto}] envio={publicacao.Timestamp} recebimento={recebidaEm}");
+                    Console.WriteLine($"Publicacao recebida: canal=[{publicacao.Canal}] usuario=[{publicacao.Usuario}] texto=[{publicacao.Texto}] envio={publicacao.Timestamp} recebimento={recebidaEm} contador={publicacao.Contador}");
             }
         }
 

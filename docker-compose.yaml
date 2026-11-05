@@ -28,7 +28,9 @@ services:
       dockerfile: csharp/Dockerfile
     volumes:
       - csharp-1-data:/data
-    depends_on: [broker, proxy]
+    environment:
+      NOME_SERVIDOR: server-csharp-1
+    depends_on: [broker, proxy, referencia]
 
   server-csharp-2:
     build:
@@ -36,7 +38,9 @@ services:
       dockerfile: csharp/Dockerfile
     volumes:
       - csharp-2-data:/data
-    depends_on: [broker, proxy]
+    environment:
+      NOME_SERVIDOR: server-csharp-2
+    depends_on: [broker, proxy, referencia]
 
   client-python-1:
     build:
@@ -70,6 +74,12 @@ services:
     build: ./proxy
     volumes:
       - ./proxy/proxy.py:/app/main.py:ro
+
+  referencia:
+    build:
+      context: .
+      dockerfile: csharp/Dockerfile
+    command: [referencia]
 
 volumes:
   python-1-data:

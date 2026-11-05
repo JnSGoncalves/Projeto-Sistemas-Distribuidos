@@ -10,7 +10,7 @@ são serializadas com Protobuf e cada servidor mantém seu próprio banco SQLite
 | --- | --- | --- |
 | 1 | Login de usuários, criação e listagem de canais, com persistência. | Implementada |
 | 2 | Inscrição e publicação de mensagens em canais com Pub/Sub. | Implementada |
-| 3 | Relógios lógicos, sincronização física e heartbeat dos servidores. | Prevista |
+| 3 | Relógios lógicos, sincronização física e heartbeat dos servidores. | Implementada em C#; Python pendente |
 | 4 | Eleição de coordenador e sincronização dos relógios com Berkeley. | Prevista |
 | 5 | Consistência e replicação dos dados entre todos os servidores. | Prevista |
 
@@ -35,6 +35,8 @@ csharp/
   Program.cs         inicialização do cliente ou servidor
   Cliente.cs         bot C#
   Servidor.cs        servidor C# e persistência SQLite
+  Relogio.cs         contador logico e relogio ajustado
+  Referencia.cs      ranks, disponibilidade e sincronizacao
   Chat.csproj        projeto .NET e dependências
   Dockerfile         imagem dos processos C#
 docker-compose.yaml  configuração dos serviços e volumes
@@ -67,6 +69,12 @@ usuário, texto e timestamps de envio e recebimento.
 A execução não exige entrada pelo teclado. Clientes e servidores exibem as
 mensagens enviadas e recebidas. Cada servidor mantém seus canais e publicações
 no próprio banco; a replicação entre servidores está prevista na Parte 5.
+
+O servico de referencia atende os servidores na porta 5559. Os servidores C#
+enviam heartbeat a cada dez pedidos recebidos e ajustam seu relogio pela hora
+da referencia. Servidores sem contato por 60 segundos saem da lista de ativos.
+Esse prazo pode ser configurado em `HEARTBEAT_TIMEOUT_SECONDS` no servico
+`referencia`. Os contadores logicos aparecem nos logs.
 
 Para executar em segundo plano:
 
