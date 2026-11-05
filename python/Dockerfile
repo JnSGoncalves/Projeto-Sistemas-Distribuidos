@@ -9,5 +9,6 @@ COPY proto/chat.proto .
 RUN python -m grpc_tools.protoc -I. --python_out=. chat.proto
 
 COPY python/cliente.py python/servidor.py .
+COPY python/sql/ ./sql/
 
 CMD ["python", "servidor.py"]
