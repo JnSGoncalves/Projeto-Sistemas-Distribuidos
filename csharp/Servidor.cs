@@ -26,6 +26,38 @@ class Servidor {
         using var publicador = new PublisherSocket();
         publicador.Connect(Environment.GetEnvironmentVariable("PROXY_PUBLICACOES") ?? "tcp://proxy:5557");
 
+        var relogio = new Relogio();
+        string nome = Environment.GetEnvironmentVariable("NOME_SERVIDOR") ?? Environment.MachineName;
+        int recebidas = 0;
+
+        bool ConsultarReferencia(string acao) {
+            using var referencia = new RequestSocket();
+            referencia.Options.Linger = TimeSpan.Zero;
+            referencia.Connect(Environment.GetEnvironmentVariable("REFERENCIA_ENDPOINT") ?? "tcp://referencia:5559");
+            var pedido = new PedidoReferencia { Acao = acao, Nome = nome,
+                Timestamp = relogio.Agora(), Contador = relogio.Enviar() };
+            var tempo = System.Diagnostics.Stopwatch.StartNew();
+
+            Console.WriteLine($"Referencia enviada: {pedido}");
+            referencia.SendFrame(pedido.ToByteArray());
+            if (!referencia.TryReceiveFrameBytes(TimeSpan.FromSeconds(3), out var dados)) {
+                Console.WriteLine("Referencia sem resposta");
+                return false;
+            }
+
+            var resposta = RespostaReferencia.Parser.ParseFrom(dados);
+            relogio.Receber(resposta.Contador);
+            Console.WriteLine($"Referencia recebida: {resposta}");
+            if (resposta.Sucesso && acao != "listar") {
+                relogio.Sincronizar(resposta.Timestamp, tempo.ElapsedMilliseconds);
+                Console.WriteLine($"Relogio sincronizado: servidor={nome} rank={resposta.Rank} hora={relogio.Agora()}");
+            }
+            return resposta.Sucesso;
+        }
+
+        while (!ConsultarReferencia("registrar")) Thread.Sleep(1000);
+        ConsultarReferencia("listar");
+
         Resposta ProcessarSolicitacao(Solicitacao solicitacao) {
             var resposta = new Resposta();
 
@@ -76,7 +108,7 @@ class Servidor {
 
                 else {
                     var publicacao = new Publicacao { Canal = solicitacao.Canal, Usuario = solicitacao.Usuario,
-                        Texto = solicitacao.Texto, Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+                        Texto = solicitacao.Texto, Timestamp = relogio.Agora(), Contador = relogio.Enviar() };
                     comando.CommandText = "INSERT INTO publicacoes VALUES ($canal, $usuario, $texto, $timestamp, $pedido)";
                     comando.Parameters.AddWithValue("$canal", publicacao.Canal);
                     comando.Parameters.AddWithValue("$usuario", publicacao.Usuario);
@@ -86,7 +118,7 @@ class Servidor {
                     comando.ExecuteNonQuery();
                     // O terminador impede que a inscricao no canal "a" receba o canal "ab".
                     publicador.SendMoreFrame(publicacao.Canal + "\0").SendFrame(publicacao.ToByteArray());
-                    Console.WriteLine($"Publicada: canal=[{publicacao.Canal}] usuario=[{publicacao.Usuario}] texto=[{publicacao.Texto}] timestamp={publicacao.Timestamp}");
+                    Console.WriteLine($"Publicada: canal=[{publicacao.Canal}] usuario=[{publicacao.Usuario}] texto=[{publicacao.Texto}] timestamp={publicacao.Timestamp} contador={publicacao.Contador}");
                     resposta.Sucesso = true;
                     resposta.Mensagem = "Publicacao enviada";
                 }
@@ -102,7 +134,8 @@ class Servidor {
             Resposta resposta;
             try {
                 var solicitacao = Solicitacao.Parser.ParseFrom(dados);
-                Console.WriteLine($"Recebida: acao={solicitacao.Acao} usuario=[{solicitacao.Usuario}] canal=[{solicitacao.Canal}] texto=[{solicitacao.Texto}] timestamp={solicitacao.Timestamp}");
+                relogio.Receber(solicitacao.Contador);
+                Console.WriteLine($"Recebida: acao={solicitacao.Acao} usuario=[{solicitacao.Usuario}] canal=[{solicitacao.Canal}] texto=[{solicitacao.Texto}] timestamp={solicitacao.Timestamp} contador={solicitacao.Contador}");
                 resposta = ProcessarSolicitacao(solicitacao);
 
             } catch (InvalidProtocolBufferException) {
@@ -118,9 +151,13 @@ class Servidor {
                 resposta = new Resposta { Mensagem = "Erro ao publicar mensagem" };
             }
             
-            resposta.Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            Console.WriteLine($"Enviada: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp}");
+            resposta.Timestamp = relogio.Agora();
+            resposta.Contador = relogio.Enviar();
+            Console.WriteLine($"Enviada: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp} contador={resposta.Contador}");
             socket.SendFrame(resposta.ToByteArray());
+
+            recebidas++;
+            if (recebidas % 10 == 0) ConsultarReferencia("heartbeat");
         }
     }
 }

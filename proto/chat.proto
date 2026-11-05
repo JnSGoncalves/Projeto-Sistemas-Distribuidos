@@ -8,6 +8,7 @@ message Solicitacao {
   string canal = 3;
   int64 timestamp = 4;
   string texto = 5;
+  int64 contador = 6;
 }
 
 message Resposta {
@@ -15,6 +16,7 @@ message Resposta {
   string mensagem = 2;
   repeated string canais = 3;
   int64 timestamp = 4;
+  int64 contador = 5;
 }
 
 message Publicacao {
@@ -22,4 +24,26 @@ message Publicacao {
   string usuario = 2;
   string texto = 3;
   int64 timestamp = 4;
+  int64 contador = 5;
+}
+
+message PedidoReferencia {
+  string acao = 1;
+  string nome = 2;
+  int64 timestamp = 3;
+  int64 contador = 4;
+}
+
+message ServidorInfo {
+  string nome = 1;
+  int32 rank = 2;
+}
+
+message RespostaReferencia {
+  bool sucesso = 1;
+  int32 rank = 2;
+  repeated ServidorInfo servidores = 3;
+  int64 timestamp = 4;
+  int64 contador = 5;
+  string mensagem = 6;
 }
