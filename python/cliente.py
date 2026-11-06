@@ -5,19 +5,23 @@ from socket import gethostname
 import time
 import zmq
 import chat_pb2
+from relogio import Relogio
+
+relogio = Relogio()
 
 
 def enviar(socket, usuario, acao, canal="", texto=""):
     solicitacao = chat_pb2.Solicitacao(
         acao=acao, usuario=usuario, canal=canal, texto=texto,
-        timestamp=time.time_ns() // 1_000_000)
+        timestamp=relogio.agora(), contador=relogio.enviar())
     print(f"Enviada: acao={solicitacao.acao} usuario={solicitacao.usuario!r} "
           f"canal={solicitacao.canal!r} texto={solicitacao.texto!r} "
-          f"timestamp={solicitacao.timestamp}", flush=True)
+          f"timestamp={solicitacao.timestamp} contador={solicitacao.contador}", flush=True)
     socket.send(solicitacao.SerializeToString())
     resposta = chat_pb2.Resposta.FromString(socket.recv())
+    relogio.receber(resposta.contador)
     print(f"Recebida: sucesso={resposta.sucesso} mensagem={resposta.mensagem!r} "
-          f"canais={list(resposta.canais)} timestamp={resposta.timestamp}", flush=True)
+          f"canais={list(resposta.canais)} timestamp={resposta.timestamp} contador={resposta.contador}", flush=True)
     return resposta
 
 
@@ -50,11 +54,12 @@ def receber_durante(assinante, inscricoes, segundos):
             continue
         topico, dados = assinante.recv_multipart()
         publicacao = chat_pb2.Publicacao.FromString(dados)
-        recebida_em = time.time_ns() // 1_000_000
+        relogio.receber(publicacao.contador)
+        recebida_em = relogio.agora()
         if topico == (publicacao.canal + "\0").encode("utf-8") and publicacao.canal in inscricoes:
             print(f"Publicacao recebida: canal={publicacao.canal!r} usuario={publicacao.usuario!r} "
                   f"texto={publicacao.texto!r} envio={publicacao.timestamp} "
-                  f"recebimento={recebida_em}", flush=True)
+                  f"recebimento={recebida_em} contador={publicacao.contador}", flush=True)
 
 
 def enviar_mensagens(socket, usuario, canal, assinante, inscricoes):

@@ -3,9 +3,13 @@ import sqlite3
 import time
 from contextlib import closing
 from pathlib import Path
+from socket import gethostname
 import zmq
 from google.protobuf.message import DecodeError
 import chat_pb2
+from relogio import Relogio
+
+relogio = Relogio()
 
 
 def carregar_sql(nome):
@@ -45,7 +49,7 @@ def publicar_mensagem(banco, publicador, solicitacao):
     if not solicitacao.texto.strip():
         return chat_pb2.Resposta(mensagem="Mensagem nao pode ser vazia")
     publicacao = chat_pb2.Publicacao(canal=solicitacao.canal, usuario=solicitacao.usuario,
-                                   texto=solicitacao.texto, timestamp=time.time_ns() // 1_000_000)
+                                   texto=solicitacao.texto, timestamp=relogio.agora(), contador=relogio.enviar())
     banco.execute(carregar_sql("registrar_publicacao.sql"),
                   (publicacao.canal, publicacao.usuario, publicacao.texto,
                    publicacao.timestamp, solicitacao.timestamp))
@@ -53,7 +57,7 @@ def publicar_mensagem(banco, publicador, solicitacao):
     publicador.send_multipart([(publicacao.canal + "\0").encode("utf-8"),
                               publicacao.SerializeToString()])
     print(f"Publicada: canal={publicacao.canal!r} usuario={publicacao.usuario!r} "
-          f"texto={publicacao.texto!r} timestamp={publicacao.timestamp}", flush=True)
+          f"texto={publicacao.texto!r} timestamp={publicacao.timestamp} contador={publicacao.contador}", flush=True)
     return chat_pb2.Resposta(sucesso=True, mensagem="Publicacao enviada")
 
 
@@ -80,17 +84,45 @@ def receber_solicitacao(socket):
     except DecodeError:
         print(f"Protobuf invalido recebido: {dados.hex()}", flush=True)
         raise
+    relogio.receber(solicitacao.contador)
     print(f"Recebida: acao={solicitacao.acao!r} usuario={solicitacao.usuario!r} "
           f"canal={solicitacao.canal!r} texto={solicitacao.texto!r} "
-          f"timestamp={solicitacao.timestamp}", flush=True)
+          f"timestamp={solicitacao.timestamp} contador={solicitacao.contador}", flush=True)
     return solicitacao
 
 
 def enviar_resposta(socket, resposta):
-    resposta.timestamp = time.time_ns() // 1_000_000
+    resposta.timestamp = relogio.agora()
+    resposta.contador = relogio.enviar()
     print(f"Enviada: sucesso={resposta.sucesso} mensagem={resposta.mensagem!r} "
-          f"canais={list(resposta.canais)} timestamp={resposta.timestamp}", flush=True)
+          f"canais={list(resposta.canais)} timestamp={resposta.timestamp} contador={resposta.contador}", flush=True)
     socket.send(resposta.SerializeToString())
+
+
+def consultar_referencia(context, nome, acao):
+    with context.socket(zmq.REQ) as referencia:
+        referencia.linger = 0
+        referencia.connect(os.getenv("REFERENCIA_ENDPOINT", "tcp://referencia:5559"))
+        pedido = chat_pb2.PedidoReferencia(acao=acao, nome=nome,
+                                         timestamp=relogio.agora(), contador=relogio.enviar())
+        inicio = time.monotonic_ns()
+
+        print(f"Referencia enviada: {pedido}", flush=True)
+        referencia.send(pedido.SerializeToString())
+        if not referencia.poll(3000):
+            print("Referencia sem resposta", flush=True)
+            return False
+
+        resposta = chat_pb2.RespostaReferencia.FromString(referencia.recv())
+        relogio.receber(resposta.contador)
+        print(f"Referencia recebida: {resposta}", flush=True)
+
+        if resposta.sucesso and acao != "listar":
+            duracao = (time.monotonic_ns() - inicio) // 1_000_000
+            relogio.sincronizar(resposta.timestamp, duracao)
+            print(f"Relogio sincronizado: servidor={nome} rank={resposta.rank} hora={relogio.agora()}", flush=True)
+
+        return resposta.sucesso
 
 
 def executar():
@@ -100,6 +132,13 @@ def executar():
             with context.socket(zmq.REP) as socket, context.socket(zmq.PUB) as publicador:
                 socket.connect(os.getenv("BROKER_SERVIDORES", "tcp://broker:5556"))
                 publicador.connect(os.getenv("PROXY_PUBLICACOES", "tcp://proxy:5557"))
+                nome = os.getenv("NOME_SERVIDOR", gethostname())
+                recebidas = 0
+
+                while not consultar_referencia(context, nome, "registrar"):
+                    time.sleep(1)
+                consultar_referencia(context, nome, "listar")
+
                 while True:
                     try:
                         solicitacao = receber_solicitacao(socket)
@@ -114,6 +153,10 @@ def executar():
                         print(f"Erro de publicacao: {erro}", flush=True)
                         resposta = chat_pb2.Resposta(mensagem="Erro ao publicar mensagem")
                     enviar_resposta(socket, resposta)
+
+                    recebidas += 1
+                    if recebidas % 10 == 0:
+                        consultar_referencia(context, nome, "heartbeat")
 
 
 if __name__ == "__main__":
