@@ -28,7 +28,10 @@ class Servidor {
 
         var relogio = new Relogio();
         string nome = Environment.GetEnvironmentVariable("NOME_SERVIDOR") ?? Environment.MachineName;
+        var coordenacao = new Coordenacao(nome, relogio);
+        var servidores = new List<ServidorInfo>();
         int recebidas = 0;
+        int trocadas = 0;
 
         bool ConsultarReferencia(string acao) {
             using var referencia = new RequestSocket();
@@ -36,7 +39,6 @@ class Servidor {
             referencia.Connect(Environment.GetEnvironmentVariable("REFERENCIA_ENDPOINT") ?? "tcp://referencia:5559");
             var pedido = new PedidoReferencia { Acao = acao, Nome = nome,
                 Timestamp = relogio.Agora(), Contador = relogio.Enviar() };
-            var tempo = System.Diagnostics.Stopwatch.StartNew();
 
             Console.WriteLine($"Referencia enviada: {pedido}");
             referencia.SendFrame(pedido.ToByteArray());
@@ -48,15 +50,21 @@ class Servidor {
             var resposta = RespostaReferencia.Parser.ParseFrom(dados);
             relogio.Receber(resposta.Contador);
             Console.WriteLine($"Referencia recebida: {resposta}");
-            if (resposta.Sucesso && acao != "listar") {
-                relogio.Sincronizar(resposta.Timestamp, tempo.ElapsedMilliseconds);
-                Console.WriteLine($"Relogio sincronizado: servidor={nome} rank={resposta.Rank} hora={relogio.Agora()}");
+            if (resposta.Sucesso) {
+                if (acao == "listar") servidores = resposta.Servidores.ToList();
+                else coordenacao.Rank = resposta.Rank;
             }
             return resposta.Sucesso;
         }
 
         while (!ConsultarReferencia("registrar")) Thread.Sleep(1000);
+
+        using var assinante = new SubscriberSocket();
+        assinante.Subscribe(Coordenacao.Topico);
+        assinante.Connect(Environment.GetEnvironmentVariable("PROXY_INSCRICOES") ?? "tcp://proxy:5558");
+        coordenacao.Iniciar();
         ConsultarReferencia("listar");
+        coordenacao.Atualizar(servidores, publicador);
 
         Resposta ProcessarSolicitacao(Solicitacao solicitacao) {
             var resposta = new Resposta();
@@ -118,6 +126,7 @@ class Servidor {
                     comando.ExecuteNonQuery();
                     // O terminador impede que a inscricao no canal "a" receba o canal "ab".
                     publicador.SendMoreFrame(publicacao.Canal + "\0").SendFrame(publicacao.ToByteArray());
+                    trocadas++;
                     Console.WriteLine($"Publicada: canal=[{publicacao.Canal}] usuario=[{publicacao.Usuario}] texto=[{publicacao.Texto}] timestamp={publicacao.Timestamp} contador={publicacao.Contador}");
                     resposta.Sucesso = true;
                     resposta.Mensagem = "Publicacao enviada";
@@ -130,7 +139,16 @@ class Servidor {
         socket.Connect(Environment.GetEnvironmentVariable("BROKER_SERVIDORES") ?? "tcp://broker:5556");
 
         while (true) {
-            byte[] dados = socket.ReceiveFrameBytes();
+            coordenacao.ReceberAnuncios(assinante);
+            if (coordenacao.EleicaoPendente() || trocadas >= 15) {
+                trocadas %= 15;
+                ConsultarReferencia("listar");
+                coordenacao.Atualizar(servidores, publicador);
+            }
+
+            if (!socket.TryReceiveFrameBytes(TimeSpan.FromMilliseconds(100), out var dados)) continue;
+
+            trocadas++;
             Resposta resposta;
             try {
                 var solicitacao = Solicitacao.Parser.ParseFrom(dados);
@@ -155,6 +173,7 @@ class Servidor {
             resposta.Contador = relogio.Enviar();
             Console.WriteLine($"Enviada: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp} contador={resposta.Contador}");
             socket.SendFrame(resposta.ToByteArray());
+            trocadas++;
 
             recebidas++;
             if (recebidas % 10 == 0) ConsultarReferencia("heartbeat");

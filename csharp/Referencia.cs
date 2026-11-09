@@ -51,6 +51,7 @@ class Referencia {
                 resposta.Mensagem = "Protobuf invalido";
             }
 
+            // Timestamp da mensagem, nao uma hora de sincronizacao.
             resposta.Timestamp = relogio.Agora();
             resposta.Contador = relogio.Enviar();
             Console.WriteLine($"Referencia enviada: {resposta}");

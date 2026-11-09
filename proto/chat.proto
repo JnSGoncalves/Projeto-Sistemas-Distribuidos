@@ -47,3 +47,13 @@ message RespostaReferencia {
   int64 contador = 5;
   string mensagem = 6;
 }
+
+message MensagemServidor {
+  string acao = 1;
+  string nome = 2;
+  int32 rank = 3;
+  int64 timestamp = 4;
+  int64 contador = 5;
+  bool sucesso = 6;
+  int64 hora = 7;
+}
