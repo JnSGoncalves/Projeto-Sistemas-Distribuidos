@@ -12,7 +12,9 @@ services:
       dockerfile: python/Dockerfile
     volumes:
       - python-1-data:/data
-    depends_on: [broker, proxy]
+    environment:
+      NOME_SERVIDOR: server-python-1
+    depends_on: [broker, proxy, referencia]
 
   server-python-2:
     build:
@@ -20,7 +22,9 @@ services:
       dockerfile: python/Dockerfile
     volumes:
       - python-2-data:/data
-    depends_on: [broker, proxy]
+    environment:
+      NOME_SERVIDOR: server-python-2
+    depends_on: [broker, proxy, referencia]
 
   server-csharp-1:
     build:
