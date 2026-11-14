@@ -7,6 +7,7 @@ from socket import gethostname
 import zmq
 from google.protobuf.message import DecodeError
 import chat_pb2
+from coordenacao import Coordenacao
 from relogio import Relogio
 
 relogio = Relogio()
@@ -105,54 +106,86 @@ def consultar_referencia(context, nome, acao):
         referencia.connect(os.getenv("REFERENCIA_ENDPOINT", "tcp://referencia:5559"))
         pedido = chat_pb2.PedidoReferencia(acao=acao, nome=nome,
                                          timestamp=relogio.agora(), contador=relogio.enviar())
-        inicio = time.monotonic_ns()
-
         print(f"Referencia enviada: {pedido}", flush=True)
         referencia.send(pedido.SerializeToString())
         if not referencia.poll(3000):
             print("Referencia sem resposta", flush=True)
-            return False
+            return None
 
         resposta = chat_pb2.RespostaReferencia.FromString(referencia.recv())
         relogio.receber(resposta.contador)
         print(f"Referencia recebida: {resposta}", flush=True)
 
-        if resposta.sucesso and acao != "listar":
-            duracao = (time.monotonic_ns() - inicio) // 1_000_000
-            relogio.sincronizar(resposta.timestamp, duracao)
-            print(f"Relogio sincronizado: servidor={nome} rank={resposta.rank} hora={relogio.agora()}", flush=True)
+        return resposta if resposta.sucesso else None
 
-        return resposta.sucesso
+
+def atender_clientes(context, banco, socket, publicador, assinante, coordenacao):
+    servidores = []
+    recebidas = 0
+    trocadas = 15  # A primeira rodada acontece antes de atender os clientes.
+
+    while True:
+        coordenacao.receber_anuncios(assinante)
+        if coordenacao.eleicao_pendente() or trocadas >= 15:
+            trocadas %= 15
+            lista = consultar_referencia(context, coordenacao.nome, "listar")
+            if lista is not None:
+                servidores = list(lista.servidores)
+            coordenacao.atualizar(servidores, publicador)
+
+        if not socket.poll(100):
+            continue
+
+        publicou = False
+        try:
+            solicitacao = receber_solicitacao(socket)
+            resposta = processar_solicitacao(banco, solicitacao, publicador)
+            publicou = solicitacao.acao == "publicar" and resposta.sucesso
+        except DecodeError:
+            resposta = chat_pb2.Resposta(mensagem="Protobuf invalido")
+        except sqlite3.Error as erro:
+            banco.rollback()
+            print(f"Erro SQLite: {erro}", flush=True)
+            resposta = chat_pb2.Resposta(mensagem="Erro ao acessar banco")
+        except zmq.ZMQError as erro:
+            print(f"Erro de publicacao: {erro}", flush=True)
+            resposta = chat_pb2.Resposta(mensagem="Erro ao publicar mensagem")
+
+        enviar_resposta(socket, resposta)
+        trocadas += 2 + int(publicou)
+        recebidas += 1
+
+        if recebidas % 10 == 0:
+            heartbeat = consultar_referencia(context, coordenacao.nome, "heartbeat")
+            if heartbeat is not None:
+                coordenacao.rank = heartbeat.rank
 
 
 def executar():
     with closing(sqlite3.connect(os.getenv("BANCO", "/data/parte1.db"))) as banco:
         criar_tabelas(banco)
         with zmq.Context() as context:
-            with context.socket(zmq.REP) as socket, context.socket(zmq.PUB) as publicador:
+            with (
+                context.socket(zmq.REP) as socket,
+                context.socket(zmq.PUB) as publicador,
+                context.socket(zmq.SUB) as assinante,
+            ):
                 socket.connect(os.getenv("BROKER_SERVIDORES", "tcp://broker:5556"))
                 publicador.connect(os.getenv("PROXY_PUBLICACOES", "tcp://proxy:5557"))
+                assinante.setsockopt(zmq.SUBSCRIBE, Coordenacao.TOPICO)
+                assinante.connect(os.getenv("PROXY_INSCRICOES", "tcp://proxy:5558"))
+
                 nome = os.getenv("NOME_SERVIDOR", gethostname())
-                recebidas = 0
-
-                while not consultar_referencia(context, nome, "registrar"):
+                while (registro := consultar_referencia(context, nome, "registrar")) is None:
                     time.sleep(1)
-                consultar_referencia(context, nome, "listar")
 
-                while True:
-                    try:
-                        solicitacao = receber_solicitacao(socket)
-                        resposta = processar_solicitacao(banco, solicitacao, publicador)
-                    except DecodeError:
-                        resposta = chat_pb2.Resposta(mensagem="Protobuf invalido")
-                    except sqlite3.Error as erro:
-                        banco.rollback()
-                        print(f"Erro SQLite: {erro}", flush=True)
-                        resposta = chat_pb2.Resposta(mensagem="Erro ao acessar banco")
-                    except zmq.ZMQError as erro:
-                        print(f"Erro de publicacao: {erro}", flush=True)
-                        resposta = chat_pb2.Resposta(mensagem="Erro ao publicar mensagem")
-                    enviar_resposta(socket, resposta)
+                coordenacao = Coordenacao(context, nome, relogio)
+                coordenacao.rank = registro.rank
+                coordenacao.iniciar()
+                try:
+                    atender_clientes(context, banco, socket, publicador, assinante, coordenacao)
+                finally:
+                    coordenacao.encerrar()
 
                     recebidas += 1
                     if recebidas % 10 == 0:
