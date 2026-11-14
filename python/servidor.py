@@ -187,6 +187,10 @@ def executar():
                 finally:
                     coordenacao.encerrar()
 
+                    recebidas += 1
+                    if recebidas % 10 == 0:
+                        consultar_referencia(context, nome, "heartbeat")
+
 
 if __name__ == "__main__":
     executar()
