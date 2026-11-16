@@ -35,7 +35,7 @@ python/
   requirements.txt   dependências Python
   Dockerfile         imagem dos processos Python
 csharp/
-  Program.cs         inicialização do cliente ou servidor
+  Program.cs         inicialização do cliente, servidor ou serviço de referência
   Cliente.cs         bot C#
   Servidor.cs        servidor C# e persistência SQLite
   Coordenacao.cs     eleição e sincronização entre servidores
@@ -45,7 +45,7 @@ csharp/
   Chat.csproj        projeto .NET e dependências
   Dockerfile         imagem dos processos C#
 docs/
-  replicacao.md      funcionamento da replicação e recuperação dos bancos
+  roteiro-apresentacao.md  roteiro e comandos para a demonstração
 docker-compose.yaml  configuração dos serviços e volumes
 ```
 
@@ -74,11 +74,9 @@ consultados novamente a cada lote. As publicações recebidas mostram canal,
 usuário, texto e timestamps de envio e recebimento.
 
 A execução não exige entrada pelo teclado. Clientes e servidores exibem as
-mensagens enviadas e recebidas. Cada servidor mantém seu próprio banco SQLite.
-Logins, canais e publicações são replicados com consistência eventual. Uma
-escrita só recebe confirmação de sucesso depois de ser gravada em dois
-servidores. Os servidores recuperam operações faltantes automaticamente.
-O [guia de replicação](docs/replicacao.md) explica o método e seus limites.
+mensagens enviadas e recebidas, com timestamps e contadores lógicos. Se um
+pedido ficar sem resposta por cinco segundos, o cliente encerra a espera. Os
+bots continuam com uma nova requisição.
 
 O serviço de referência atende na porta 5559 e mantém os ranks e a lista de
 servidores ativos. Os servidores enviam heartbeat a cada dez pedidos recebidos.
@@ -121,3 +119,26 @@ docker compose down
 Cada servidor armazena seu banco em `/data/parte1.db`, dentro de um volume
 exclusivo. Os dados são preservados entre execuções. Para encerrar e apagar os
 bancos, utilize `docker compose down -v`.
+
+## Replicação
+
+O broker distribui os pedidos entre os servidores. Para que cada um possa
+consultar o histórico completo, usamos **replicação ativa com consistência
+eventual**. Cada servidor aplica as mesmas operações de login, criação de canal
+e publicação no seu próprio SQLite. Dados de bancos existentes entram nesse
+processo na primeira inicialização.
+
+O servidor que recebe uma escrita grava a operação e os dados na mesma
+transação e usa `replicar` para enviar a operação a outro servidor. Ele só
+confirma sucesso ao cliente depois que esse servidor grava uma cópia,
+protegendo a escrita confirmada da perda de um servidor. Periodicamente,
+as réplicas usam `buscar_operacoes` para recuperar lotes de operações faltantes.
+O identificador de cada operação evita reaplicações. Se dois servidores criarem
+o mesmo canal ao mesmo tempo, as réplicas usam o registro com o menor
+identificador em ordem lexicográfica.
+
+Um servidor que entra com banco vazio busca os dados desde o início. A
+recuperação atualiza o histórico sem reenviar publicações aos assinantes.
+Durante a recuperação, uma consulta pode retornar dados parciais. Se uma escrita
+ficar sem confirmação da segunda cópia, ela retorna erro e pode se propagar
+depois caso tenha sido gravada localmente.

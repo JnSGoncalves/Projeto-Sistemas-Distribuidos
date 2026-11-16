@@ -54,11 +54,16 @@ class Replicacao:
             self.banco.execute(ler_sql("registrar_publicacao.sql"),
                                (op.canal, op.usuario, op.texto, op.timestamp, op.timestamp_solicitacao))
 
+    def _canal_existe(self, canal):
+        return self.banco.execute("SELECT 1 FROM canais WHERE nome = ?", (canal,)).fetchone() is not None
+
+    def canal_existe(self, canal):
+        with self.trava:
+            return self._canal_existe(canal)
+
     def registrar(self, op):
         with self.trava, self.banco:
-            if op.tipo == "criar" and self.banco.execute(
-                "SELECT 1 FROM canais WHERE nome = ?", (op.canal,)
-            ).fetchone():
+            if op.tipo == "criar" and self._canal_existe(op.canal):
                 return False
 
             self.aplicar(op)

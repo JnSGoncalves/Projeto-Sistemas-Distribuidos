@@ -14,6 +14,13 @@ from replicacao import Replicacao, ler_sql, publicacao
 relogio = Relogio()
 
 
+def recuperar_replicas(replicacao, replicas, coordenacao):
+    try:
+        replicacao.buscar(replicas, coordenacao)
+    except (sqlite3.Error, ValueError) as erro:
+        print(f"Erro ao recuperar replica: {erro}", flush=True)
+
+
 def processar_solicitacao(replicacao, solicitacao, publicador, replicas, coordenacao):
     def erro(mensagem):
         return chat_pb2.Resposta(mensagem=mensagem)
@@ -39,6 +46,10 @@ def processar_solicitacao(replicacao, solicitacao, publicador, replicas, coorden
         lista = consultar_referencia(coordenacao.context, coordenacao.nome, "listar_replicas")
         if lista is not None:
             replicas[:] = lista.servidores
+    if acao == "publicar" and not replicacao.canal_existe(solicitacao.canal):
+        recuperar_replicas(replicacao, replicas, coordenacao)
+        if not replicacao.canal_existe(solicitacao.canal):
+            return erro("Canal nao encontrado")
     if not any(s.nome != coordenacao.nome for s in replicas):
         return erro("Nenhuma replica disponivel")
 
@@ -119,10 +130,7 @@ def atender_clientes(context, replicacao, socket, publicador, assinante, coorden
             lista = consultar_referencia(context, coordenacao.nome, "listar_replicas")
             if lista is not None:
                 replicas[:] = lista.servidores
-            try:
-                replicacao.buscar(replicas, coordenacao)
-            except (sqlite3.Error, ValueError) as erro:
-                print(f"Erro ao recuperar replica: {erro}", flush=True)
+            recuperar_replicas(replicacao, replicas, coordenacao)
             proxima_busca = time.monotonic() + 2
 
         if coordenacao.eleicao_pendente() or trocadas >= 15:

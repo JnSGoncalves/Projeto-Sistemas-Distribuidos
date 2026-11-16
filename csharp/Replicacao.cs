@@ -45,6 +45,15 @@ class Replicacao {
         return comando.ExecuteNonQuery();
     }
 
+    private bool CanalExiste(string canal, SqliteTransaction? transacao) {
+        using var consulta = Comando(transacao, "SELECT 1 FROM canais WHERE nome = $canal", ("$canal", canal));
+        return consulta.ExecuteScalar() is not null;
+    }
+
+    public bool CanalExiste(string canal) {
+        lock (trava) return CanalExiste(canal, null);
+    }
+
     private void Aplicar(SqliteTransaction transacao, Operacao op) {
         if (op.Id.Length == 0 || op.Tipo is not ("login" or "criar" or "publicar"))
             throw new InvalidDataException("Operacao de replica invalida");
@@ -69,10 +78,7 @@ class Replicacao {
     public bool Registrar(Operacao op) {
         lock (trava) {
             using var transacao = banco.BeginTransaction();
-            if (op.Tipo == "criar") {
-                using var consulta = Comando(transacao, "SELECT 1 FROM canais WHERE nome = $canal", ("$canal", op.Canal));
-                if (consulta.ExecuteScalar() is not null) return false;
-            }
+            if (op.Tipo == "criar" && CanalExiste(op.Canal, transacao)) return false;
             Aplicar(transacao, op);
             transacao.Commit();
             return true;

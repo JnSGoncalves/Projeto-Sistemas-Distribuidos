@@ -170,7 +170,9 @@ class Coordenacao:
                 aviso = chat_pb2.MensagemServidor.FromString(quadros[1])
                 self.relogio.receber(aviso.contador)
                 print(f"Anuncio recebido: {aviso}", flush=True)
-                if aviso.acao == "coordenador" and aviso.rank >= max(self.rank, self.rank_coordenador):
+                if (aviso.acao == "coordenador" and aviso.sucesso and aviso.rank >= self.rank
+                        and (aviso.rank >= self.rank_coordenador
+                             or self.consultar(self.coordenador, "relogio") is None)):
                     self.definir_coordenador(aviso.nome, aviso.rank)
             except DecodeError:
                 print("Anuncio invalido", flush=True)
@@ -183,9 +185,9 @@ class Coordenacao:
             if par.rank <= self.rank or self.consultar(par.nome, "eleicao") is None:
                 continue
 
-            self.definir_coordenador(par.nome, par.rank)
             resultado = self.consultar(par.nome, "relogio")
             if resultado is not None:
+                self.definir_coordenador(par.nome, par.rank)
                 resposta, duracao = resultado
                 self.relogio.sincronizar(resposta.hora, duracao)
                 print(f"Relogio sincronizado por {par.nome}: {self.relogio.agora()}", flush=True)

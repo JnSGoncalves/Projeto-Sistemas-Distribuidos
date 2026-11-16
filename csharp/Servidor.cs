@@ -2,6 +2,7 @@ using Google.Protobuf;
 using Microsoft.Data.Sqlite;
 using NetMQ;
 using NetMQ.Sockets;
+using System.Text;
 
 namespace Chat;
 
@@ -69,22 +70,35 @@ class Servidor {
         ConsultarReferencia("listar");
         coordenacao.Atualizar(servidores, publicador);
 
+        void RecuperarReplicas() {
+            try {
+                replicacao.Buscar(replicas, coordenacao);
+            } catch (Exception erro) when (erro is SqliteException or InvalidDataException) {
+                Console.WriteLine($"Erro ao recuperar replica: {erro.Message}");
+            }
+        }
+
         Resposta ProcessarSolicitacao(Solicitacao solicitacao) {
             Resposta Erro(string mensagem) => new() { Mensagem = mensagem };
+            bool NomeValido(string valor) => !string.IsNullOrWhiteSpace(valor) && valor.EnumerateRunes().Count() <= 64;
 
             if (solicitacao.Timestamp <= 0) return Erro("Timestamp invalido");
-            if (string.IsNullOrWhiteSpace(solicitacao.Usuario) || solicitacao.Usuario.Length > 64)
+            if (!NomeValido(solicitacao.Usuario))
                 return Erro("Usuario deve ter de 1 a 64 caracteres e nao ser vazio");
 
             if (solicitacao.Acao == "listar") return replicacao.Listar();
             if (solicitacao.Acao == "historico") return replicacao.Historico(solicitacao.Canal);
             if (solicitacao.Acao is not ("login" or "criar" or "publicar")) return Erro("Acao invalida");
-            if (solicitacao.Acao != "login" && (string.IsNullOrWhiteSpace(solicitacao.Canal) || solicitacao.Canal.Length > 64))
+            if (solicitacao.Acao != "login" && !NomeValido(solicitacao.Canal))
                 return Erro("Canal deve ter de 1 a 64 caracteres e nao ser vazio");
             if (solicitacao.Acao == "publicar" && string.IsNullOrWhiteSpace(solicitacao.Texto))
                 return Erro("Mensagem nao pode ser vazia");
 
             if (replicas.Count < 2) ConsultarReferencia("listar_replicas");
+            if (solicitacao.Acao == "publicar" && !replicacao.CanalExiste(solicitacao.Canal)) {
+                RecuperarReplicas();
+                if (!replicacao.CanalExiste(solicitacao.Canal)) return Erro("Canal nao encontrado");
+            }
             if (!replicas.Any(s => s.Nome != nome)) return Erro("Nenhuma replica disponivel");
 
             var operacao = new Operacao {
@@ -103,7 +117,7 @@ class Servidor {
                     Timestamp = operacao.Timestamp, TimestampSolicitacao = operacao.TimestampSolicitacao,
                     ContadorSolicitacao = operacao.Contador, Contador = relogio.Enviar()
                 };
-                publicador.SendMoreFrame(publicacao.Canal + "\0").SendFrame(publicacao.ToByteArray());
+                publicador.SendMoreFrame(Encoding.UTF8.GetBytes(publicacao.Canal + "\0")).SendFrame(publicacao.ToByteArray());
                 trocadas++;
                 Console.WriteLine($"Publicada: {publicacao}");
             }
@@ -120,11 +134,7 @@ class Servidor {
             coordenacao.ReceberAnuncios(assinante);
             if (intervaloReplica.ElapsedMilliseconds >= 2000) {
                 ConsultarReferencia("listar_replicas");
-                try {
-                    replicacao.Buscar(replicas, coordenacao);
-                } catch (Exception erro) when (erro is SqliteException or InvalidDataException) {
-                    Console.WriteLine($"Erro ao recuperar replica: {erro.Message}");
-                }
+                RecuperarReplicas();
                 intervaloReplica.Restart();
             }
 

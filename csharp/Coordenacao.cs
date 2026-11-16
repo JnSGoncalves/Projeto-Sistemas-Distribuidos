@@ -117,8 +117,10 @@ class Coordenacao(string nome, Relogio relogio) {
                 var aviso = MensagemServidor.Parser.ParseFrom(quadros[1].ToByteArray());
                 relogio.Receber(aviso.Contador);
                 Console.WriteLine($"Anuncio recebido: {aviso}");
-                if (aviso.Acao == "coordenador" && aviso.Rank >= Math.Max(Rank, rankCoordenador))
+                if (aviso.Acao == "coordenador" && aviso.Sucesso && aviso.Rank >= Rank
+                    && (aviso.Rank >= rankCoordenador || Consultar(coordenador, "relogio") is null)) {
                     DefinirCoordenador(aviso.Nome, aviso.Rank);
+                }
             } catch (InvalidProtocolBufferException) {
                 Console.WriteLine("Anuncio invalido");
             }
@@ -136,8 +138,8 @@ class Coordenacao(string nome, Relogio relogio) {
         foreach (var par in pares.Where(s => s.Rank > Rank)) {
             if (Consultar(par.Nome, "eleicao") is null) continue;
 
-            DefinirCoordenador(par.Nome, par.Rank);
             if (Consultar(par.Nome, "relogio") is { } hora) {
+                DefinirCoordenador(par.Nome, par.Rank);
                 relogio.Sincronizar(hora.Resposta.Hora, hora.Duracao);
                 Console.WriteLine($"Relogio sincronizado por {par.Nome}: {relogio.Agora()}");
             }
