@@ -40,8 +40,9 @@ class Referencia {
                     ativos[pedido.Nome] = tempo.ElapsedMilliseconds;
                     resposta.Rank = ranks[pedido.Nome];
                     resposta.Sucesso = true;
-                } else if (pedido.Acao == "listar") {
-                    foreach (var nome in ativos.Keys.Order())
+                } else if (pedido.Acao is "listar" or "listar_replicas") {
+                    var nomes = pedido.Acao == "listar" ? ativos.Keys.AsEnumerable() : ranks.Keys;
+                    foreach (var nome in nomes.Order())
                         resposta.Servidores.Add(new ServidorInfo { Nome = nome, Rank = ranks[nome] });
                     resposta.Sucesso = true;
                 } else {

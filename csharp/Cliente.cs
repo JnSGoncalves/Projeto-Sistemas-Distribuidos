@@ -5,7 +5,7 @@ using NetMQ.Sockets;
 namespace Chat;
 
 class Cliente {
-    public void Executar(string usuario) {
+    public void Executar(string usuario, string? historico = null) {
         using var socket = new RequestSocket();
         socket.Connect(Environment.GetEnvironmentVariable("BROKER_CLIENTES") ?? "tcp://broker:5555");
 
@@ -23,7 +23,13 @@ class Cliente {
             var resposta = Resposta.Parser.ParseFrom(socket.ReceiveFrameBytes());
             relogio.Receber(resposta.Contador);
             Console.WriteLine($"Recebida: sucesso={resposta.Sucesso} mensagem=[{resposta.Mensagem}] canais=[{string.Join(", ", resposta.Canais)}] timestamp={resposta.Timestamp} contador={resposta.Contador}");
+            foreach (var publicacao in resposta.Historico) Console.WriteLine($"Historico: {publicacao}");
             return resposta;
+        }
+
+        if (historico is not null) {
+            Enviar("historico", historico);
+            return;
         }
 
         void ReceberDurante(int milissegundos) {

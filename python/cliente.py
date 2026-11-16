@@ -22,6 +22,8 @@ def enviar(socket, usuario, acao, canal="", texto=""):
     relogio.receber(resposta.contador)
     print(f"Recebida: sucesso={resposta.sucesso} mensagem={resposta.mensagem!r} "
           f"canais={list(resposta.canais)} timestamp={resposta.timestamp} contador={resposta.contador}", flush=True)
+    for publicacao in resposta.historico:
+        print(f"Historico: {publicacao}", flush=True)
     return resposta
 
 
@@ -68,10 +70,14 @@ def enviar_mensagens(socket, usuario, canal, assinante, inscricoes):
         receber_durante(assinante, inscricoes, 1)
 
 
-def executar(usuario):
+def executar(usuario, historico=None):
     with zmq.Context() as context:
         with context.socket(zmq.REQ) as socket, context.socket(zmq.SUB) as assinante:
             socket.connect(os.getenv("BROKER_CLIENTES", "tcp://broker:5555"))
+            if historico is not None:
+                enviar(socket, usuario, "historico", historico)
+                return
+
             assinante.connect(os.getenv("PROXY_INSCRICOES", "tcp://proxy:5558"))
             inscricoes = set()
             realizar_login(socket, usuario)
@@ -96,4 +102,5 @@ def executar(usuario):
 
 if __name__ == "__main__":
     usuario = sys.argv[1] if len(sys.argv) > 1 else f"python-{gethostname()}"
-    executar(usuario)
+    historico = (sys.argv[3] if len(sys.argv) > 3 else "") if sys.argv[2:3] == ["historico"] else None
+    executar(usuario, historico)

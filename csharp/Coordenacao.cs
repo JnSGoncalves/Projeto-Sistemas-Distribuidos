@@ -2,6 +2,8 @@ using Google.Protobuf;
 using NetMQ;
 using NetMQ.Sockets;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 
 namespace Chat;
 
@@ -10,7 +12,10 @@ class Coordenacao(string nome, Relogio relogio) {
     private volatile string coordenador = "";
     private int rankCoordenador;
     private int eleicaoPendente;
+    private readonly Dictionary<string, IPAddress> enderecos = new();
+    private readonly Dictionary<string, Task<IPAddress[]>> resolucoes = new();
     public volatile int Rank;
+    public Func<MensagemServidor, MensagemServidor?>? AtenderReplica;
 
     private MensagemServidor Mensagem(string acao, bool sucesso = false, long hora = 0) => new() {
         Acao = acao, Nome = nome, Rank = Rank, Sucesso = sucesso, Hora = hora,
@@ -33,6 +38,14 @@ class Coordenacao(string nome, Relogio relogio) {
                 relogio.Receber(pedido.Contador);
                 Console.WriteLine($"Servidor recebeu: {pedido}");
 
+                if (AtenderReplica?.Invoke(pedido) is { } replica) {
+                    replica.Timestamp = relogio.Agora();
+                    replica.Contador = relogio.Enviar();
+                    Console.WriteLine($"Servidor enviou: {replica}");
+                    socket.SendFrame(replica.ToByteArray());
+                    continue;
+                }
+
                 bool sucesso = pedido.Acao switch {
                     "eleicao" => Rank > pedido.Rank,
                     "amostra" => true,
@@ -53,24 +66,43 @@ class Coordenacao(string nome, Relogio relogio) {
         }
     }
 
-    private (MensagemServidor Resposta, long Duracao)? Consultar(string destino, string acao) {
+    public (MensagemServidor Resposta, long Duracao)? Consultar(string destino, string acao,
+        Action<MensagemServidor>? preencher = null) {
         try {
+            if (!enderecos.TryGetValue(destino, out var endereco)) {
+                if (!resolucoes.TryGetValue(destino, out var tarefa))
+                    resolucoes[destino] = tarefa = Dns.GetHostAddressesAsync(destino, AddressFamily.InterNetwork);
+                try {
+                    endereco = tarefa.WaitAsync(TimeSpan.FromMilliseconds(200)).GetAwaiter().GetResult().FirstOrDefault();
+                    if (endereco is null) return null;
+                    enderecos[destino] = endereco;
+                } finally {
+                    if (tarefa.IsCompleted) resolucoes.Remove(destino);
+                }
+            }
+
             using var socket = new RequestSocket();
             socket.Options.Linger = TimeSpan.Zero;
-            socket.Connect($"tcp://{destino}:5560");
+            socket.Connect($"tcp://{endereco}:5560");
             var pedido = Mensagem(acao);
+            preencher?.Invoke(pedido);
             Console.WriteLine($"Servidor enviou para {destino}: {pedido}");
 
             var tempo = Stopwatch.StartNew();
             socket.SendFrame(pedido.ToByteArray());
-            if (!socket.TryReceiveFrameBytes(TimeSpan.FromMilliseconds(500), out var dados)) return null;
+            if (!socket.TryReceiveFrameBytes(TimeSpan.FromMilliseconds(500), out var dados)) {
+                enderecos.Remove(destino);
+                return null;
+            }
 
             var resposta = MensagemServidor.Parser.ParseFrom(dados);
             relogio.Receber(resposta.Contador);
             Console.WriteLine($"Servidor recebeu de {destino}: {resposta}");
+            if (resposta.Nome != destino) enderecos.Remove(destino);
             return resposta.Sucesso && resposta.Nome == destino ? (resposta, tempo.ElapsedMilliseconds) : null;
-        } catch (Exception erro) when (erro is NetMQException or System.Net.Sockets.SocketException
+        } catch (Exception erro) when (erro is NetMQException or SocketException or TimeoutException
             or ArgumentException or InvalidProtocolBufferException) {
+            enderecos.Remove(destino);
             return null;
         }
     }

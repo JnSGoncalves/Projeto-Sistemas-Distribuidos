@@ -18,6 +18,7 @@ class Coordenacao:
         self.rank = 0
         self.coordenador = ""
         self.rank_coordenador = 0
+        self.atender_replica = None
         self._eleicao_pendente = False
         self._trava = Lock()
         self._enderecos = {}
@@ -51,6 +52,14 @@ class Coordenacao:
                     pedido = chat_pb2.MensagemServidor.FromString(socket.recv())
                     self.relogio.receber(pedido.contador)
                     print(f"Servidor recebeu: {pedido}", flush=True)
+
+                    replica = self.atender_replica(pedido) if self.atender_replica else None
+                    if replica is not None:
+                        replica.timestamp = self.relogio.agora()
+                        replica.contador = self.relogio.enviar()
+                        print(f"Servidor enviou: {replica}", flush=True)
+                        socket.send(replica.SerializeToString())
+                        continue
 
                     sucesso = False
                     hora = 0
@@ -103,7 +112,7 @@ class Coordenacao:
             self._resolucoes.pop(destino)
             pronto.set()
 
-    def consultar(self, destino, acao):
+    def consultar(self, destino, acao, **campos):
         # Um nome fora do ar não deve bloquear as consultas aos outros servidores.
         endereco = self.resolver(destino)
         if endereco is None:
@@ -114,6 +123,11 @@ class Coordenacao:
                 socket.linger = 0
                 socket.connect(f"tcp://{endereco}:5560")
                 pedido = self.mensagem(acao)
+                for campo, valor in campos.items():
+                    if campo == "operacoes":
+                        pedido.operacoes.extend(valor)
+                    else:
+                        setattr(pedido, campo, valor)
                 print(f"Servidor enviou para {destino}: {pedido}", flush=True)
 
                 inicio = time.monotonic_ns()
