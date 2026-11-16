@@ -220,6 +220,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 *.md
+!docs/replicacao.md
 # !README.md
 **/bin/
 **/obj/

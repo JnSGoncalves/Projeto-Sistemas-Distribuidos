@@ -11,5 +11,6 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
     <PackageReference Include="Grpc.Tools" Version="2.69.0" PrivateAssets="All" />
     <Protobuf Include="../proto/chat.proto" GrpcServices="None" />
+    <None Include="../python/sql/*.sql" Link="sql/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

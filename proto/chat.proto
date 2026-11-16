@@ -17,6 +17,7 @@ message Resposta {
   repeated string canais = 3;
   int64 timestamp = 4;
   int64 contador = 5;
+  repeated Publicacao historico = 6;
 }
 
 message Publicacao {
@@ -25,6 +26,9 @@ message Publicacao {
   string texto = 3;
   int64 timestamp = 4;
   int64 contador = 5;
+  string id = 6;
+  int64 timestamp_solicitacao = 7;
+  int64 contador_solicitacao = 8;
 }
 
 message PedidoReferencia {
@@ -46,4 +50,28 @@ message RespostaReferencia {
   int64 timestamp = 4;
   int64 contador = 5;
   string mensagem = 6;
+}
+
+message MensagemServidor {
+  string acao = 1;
+  string nome = 2;
+  int32 rank = 3;
+  int64 timestamp = 4;
+  int64 contador = 5;
+  bool sucesso = 6;
+  int64 hora = 7;
+  repeated Operacao operacoes = 8;
+  int64 cursor = 9;
+  string replica_id = 10;
+}
+
+message Operacao {
+  string id = 1;
+  string tipo = 2;
+  string usuario = 3;
+  string canal = 4;
+  string texto = 5;
+  int64 timestamp = 6;
+  int64 timestamp_solicitacao = 7;
+  int64 contador = 8;
 }

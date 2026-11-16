@@ -4,6 +4,7 @@ COPY csharp/Chat.csproj csharp/
 COPY proto/ proto/
 RUN dotnet restore csharp/Chat.csproj
 COPY csharp/ csharp/
+COPY python/sql/ python/sql/
 RUN dotnet publish csharp/Chat.csproj -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/runtime:8.0

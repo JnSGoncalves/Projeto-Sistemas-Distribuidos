@@ -11,8 +11,8 @@ são serializadas com Protobuf e cada servidor mantém seu próprio banco SQLite
 | 1 | Login de usuários, criação e listagem de canais, com persistência. | Implementada |
 | 2 | Inscrição e publicação de mensagens em canais com Pub/Sub. | Implementada |
 | 3 | Relógios lógicos, sincronização física e heartbeat dos servidores. | Implementada |
-| 4 | Eleição de coordenador e sincronização dos relógios com Berkeley. | Prevista |
-| 5 | Consistência e replicação dos dados entre todos os servidores. | Prevista |
+| 4 | Eleição de coordenador e sincronização dos relógios com Berkeley. | Implementada |
+| 5 | Replicação de logins, canais e publicações, com recuperação e consulta do histórico. | Implementada |
 
 ## Estrutura
 
@@ -28,18 +28,24 @@ proto/
 python/
   cliente.py         bot Python
   servidor.py        servidor Python e persistência SQLite
+  coordenacao.py     eleição e sincronização entre servidores
+  replicacao.py      registro, confirmação e recuperação das operações
   relogio.py         contador logico e relogio ajustado
-  sql/               scripts de criação, consulta e gravação nas tabelas Python
+  sql/               scripts SQLite, incluindo os usados nas duas linguagens
   requirements.txt   dependências Python
   Dockerfile         imagem dos processos Python
 csharp/
   Program.cs         inicialização do cliente ou servidor
   Cliente.cs         bot C#
   Servidor.cs        servidor C# e persistência SQLite
+  Coordenacao.cs     eleição e sincronização entre servidores
+  Replicacao.cs      registro, confirmação e recuperação das operações
   Relogio.cs         contador logico e relogio ajustado
-  Referencia.cs      ranks, disponibilidade e sincronizacao
+  Referencia.cs      ranks e disponibilidade dos servidores
   Chat.csproj        projeto .NET e dependências
   Dockerfile         imagem dos processos C#
+docs/
+  replicacao.md      funcionamento da replicação e recuperação dos bancos
 docker-compose.yaml  configuração dos serviços e volumes
 ```
 
@@ -68,14 +74,21 @@ consultados novamente a cada lote. As publicações recebidas mostram canal,
 usuário, texto e timestamps de envio e recebimento.
 
 A execução não exige entrada pelo teclado. Clientes e servidores exibem as
-mensagens enviadas e recebidas. Cada servidor mantém seus canais e publicações
-no próprio banco; a replicação entre servidores está prevista na Parte 5.
+mensagens enviadas e recebidas. Cada servidor mantém seu próprio banco SQLite.
+Logins, canais e publicações são replicados com consistência eventual. Uma
+escrita só recebe confirmação de sucesso depois de ser gravada em dois
+servidores. Os servidores recuperam operações faltantes automaticamente.
+O [guia de replicação](docs/replicacao.md) explica o método e seus limites.
 
-O servico de referencia atende os servidores na porta 5559. Os servidores
-enviam heartbeat a cada dez pedidos recebidos e ajustam seu relogio pela hora
-da referencia. Servidores sem contato por 60 segundos saem da lista de ativos.
-Esse prazo pode ser configurado em `HEARTBEAT_TIMEOUT_SECONDS` no servico
-`referencia`. Os contadores logicos aparecem nos logs.
+O serviço de referência atende na porta 5559 e mantém os ranks e a lista de
+servidores ativos. Os servidores enviam heartbeat a cada dez pedidos recebidos.
+O prazo de inatividade padrão é de 60 segundos, configurável por
+`HEARTBEAT_TIMEOUT_SECONDS` no serviço `referencia`.
+
+Os servidores se comunicam pela porta interna 5560. O coordenador é anunciado
+no tópico `servers` e fornece a hora calculada por Berkeley. A sincronização
+ocorre a cada 15 mensagens trocadas com clientes. Os logs mostram os
+contadores lógicos, as eleições e os ajustes do relógio.
 
 Para executar em segundo plano:
 
@@ -89,6 +102,15 @@ Para acompanhar os serviços e suas mensagens:
 docker compose ps
 docker compose logs -f
 ```
+
+Para consultar o histórico de um canal, com o Compose em execução:
+
+```sh
+docker compose exec client-python-1 python cliente.py consulta historico canal-exemplo
+docker compose exec client-csharp-1 dotnet Chat.dll cliente consulta historico canal-exemplo
+```
+
+Substitua `canal-exemplo` pelo nome do canal ou omita o nome para consultar todos.
 
 Para encerrar, use Ctrl+C se estiver acompanhando a execução e execute:
 
